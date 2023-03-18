@@ -43,15 +43,19 @@ export class TelegramService {
           apiKey: process.env.OPENAI_API_KEY,
         }))
 
-        const completion = await openai.createCompletion({
-          // model: 'gpt-3.5-turbo',
-          model: 'code-davinci-002',
-          prompt: message.text,
-          max_tokens: 1000,
+        const completion = await openai.createChatCompletion({
+          model: 'gpt-3.5-turbo',
+          messages: [
+            {
+              role: 'assistant',
+              content: message.text,
+            }
+          ],
         })
 
         const text = completion.data.choices
-          .map(choice => choice.text)
+          .filter(choice => choice.message !== undefined)
+          .map(choice => choice.message.content)
           .join('\n')
 
         this.logger.log(text)
@@ -65,6 +69,15 @@ export class TelegramService {
 
         if (error.response) {
           this.logger.warn(error.response.data.error.message)
+        }
+
+        try {
+          await this.bot.sendMessage({
+            chat_id: message.chat.id,
+            text: 'Something went wrong',
+          })
+        } catch (error) {
+          this.logger.debug(error)
         }
       }
     })
