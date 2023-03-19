@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.1.3] - 2023-03-19
+### Added
+- node-telegram-bot-api package
+### Changed
+- logic for setting typing status
+### Removed
+- telegram-bot-api package
+
 ## [0.1.2] - 2023-03-19
 ### Added
 - change error message

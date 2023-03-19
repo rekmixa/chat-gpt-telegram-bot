@@ -44,7 +44,7 @@ export class TelegramService {
           return
         }
 
-        if (this.chatContexts[message.chat.id]?.loading) {
+        if (this.isLoading(message.chat.id) === true) {
           await this.reply(message.chat.id, 'Подожди пока закончится обработка предыдущего вопроса...')
 
           return
@@ -74,7 +74,21 @@ export class TelegramService {
   }
 
   private async setTyping(chatId): Promise<void> {
+    this.logger.log(`Typing: ${chatId}`)
     await this.bot.sendChatAction(chatId, 'typing')
+
+    if (this.isLoading(chatId) === false) {
+      const interval = setInterval(async () => {
+        if (this.isLoading(chatId) === false) {
+          clearInterval(interval)
+
+          return
+        }
+
+        this.logger.log(`Typing: ${chatId}`)
+        await this.bot.sendChatAction(chatId, 'typing')
+      }, 1000)
+    }
   }
 
   private async reply(chatId: string, text: string): Promise<void> {
@@ -148,6 +162,10 @@ export class TelegramService {
       this.chatContexts[chatId].date = new Date()
       this.chatContexts[chatId].questions.push(question)
     }
+  }
+
+  private isLoading(chatId: string): boolean {
+    return Boolean(this.chatContexts[chatId]?.loading)
   }
 
   private isNotWorkingTime(): boolean {
