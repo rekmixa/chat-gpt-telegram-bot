@@ -37,10 +37,7 @@ export class TelegramService {
       this.logger.log(`@${message.from.username}: ${message.text}`)
 
       try {
-        await this.bot.sendChatAction({
-          chat_id: message.chat.id,
-          action: 'typing',
-        })
+        await this.setTyping(message.chat.id)
 
         if (message.text === '/ping') {
           await this.bot.sendMessage({
@@ -108,13 +105,20 @@ export class TelegramService {
     })
   }
 
+  private async setTyping(chatId): Promise<void> {
+    await this.bot.sendChatAction({
+      chat_id: chatId,
+      action: 'typing',
+    })
+  }
+
   private async replyWithChatGpt(chatId: string, question: string, role: ChatCompletionRequestMessageRoleEnum = 'assistant', withContext: boolean = true): Promise<void> {
     const openai = new OpenAIApi(new Configuration({
       organization: process.env.OPENAI_ORGANIZATION_ID,
       apiKey: process.env.OPENAI_API_KEY,
     }))
 
-    const messages = withContext === true ? this.getContext(chatId, question) : []
+    const messages = withContext === true ? this.getContext(chatId) : []
 
     messages.push({
       role: 'user',
@@ -122,7 +126,7 @@ export class TelegramService {
     })
 
     this.logger.log('Context size: ' + messages.length)
-
+    
     const completion = await openai.createChatCompletion({
       model: 'gpt-3.5-turbo',
       messages,
@@ -145,7 +149,7 @@ export class TelegramService {
     }
   }
 
-  private getContext(chatId: string, question: string): ChatCompletionRequestMessage[] {
+  private getContext(chatId: string): ChatCompletionRequestMessage[] {
     if (this.chatContexts[chatId] === undefined) {
       this.chatContexts[chatId] = {
         loading: true,
