@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2023-03-19
+### Added
+- remembering context in chat
+
 ## [0.0.3] - 2023-03-19
 ### Fixed
 - checking message

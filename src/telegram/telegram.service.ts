@@ -1,6 +1,6 @@
 import { Logger, Injectable } from '@nestjs/common'
 import { Configuration, OpenAIApi } from 'openai'
-import { ChatCompletionRequestMessageRoleEnum } from 'openai/dist/api'
+import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } from 'openai/dist/api'
 import { convertTimeZone } from 'src/helpers'
 import * as TelegramBot from 'telegram-bot-api'
 
@@ -8,6 +8,8 @@ import * as TelegramBot from 'telegram-bot-api'
 export class TelegramService {
   private logger: Logger = new Logger('TelegramService')
   private readonly bot: TelegramBot
+
+  private chatContexts: { [chatId: string]: { date: Date, questions: string[] } } = {}
 
   constructor() {
     this.bot = new TelegramBot({
@@ -68,7 +70,7 @@ export class TelegramService {
         }
 
         if (message.text === '/start') {
-          await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', 'user')
+          await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', 'user', false)
 
           return
         }
@@ -93,20 +95,24 @@ export class TelegramService {
     })
   }
 
-  private async replyWithChatGpt(chatId: string, question: string, role: ChatCompletionRequestMessageRoleEnum = 'assistant'): Promise<void> {
+  private async replyWithChatGpt(chatId: string, question: string, role: ChatCompletionRequestMessageRoleEnum = 'assistant', withContext: boolean = true): Promise<void> {
     const openai = new OpenAIApi(new Configuration({
       organization: process.env.OPENAI_ORGANIZATION_ID,
       apiKey: process.env.OPENAI_API_KEY,
     }))
 
+    const messages = withContext === true ? this.getContext(chatId, question) : []
+
+    messages.push({
+      role: 'user',
+      content: question,
+    })
+
+    this.logger.log('Context size: ' + messages.length)
+
     const completion = await openai.createChatCompletion({
       model: 'gpt-3.5-turbo',
-      messages: [
-        {
-          role,
-          content: question,
-        }
-      ],
+      messages,
     })
 
     const text = completion.data.choices
@@ -120,6 +126,41 @@ export class TelegramService {
       chat_id: chatId,
       text,
     })
+
+    if (withContext === true) {
+      this.addToContext(chatId, question)
+    }
+  }
+
+  private getContext(chatId: string, question: string): ChatCompletionRequestMessage[] {
+    if (this.chatContexts[chatId] === undefined) {
+      this.chatContexts[chatId] = {
+        date: new Date(),
+        questions: []
+      }
+    }
+
+    // Забываем контекст беседы, если не было сообщений в течение часа
+    if (this.chatContexts[chatId].date.getTime() < new Date().getTime() - 15 * 1000) {
+      this.chatContexts[chatId].questions = []
+    }
+
+    const currentContext = []
+    for (const question of this.chatContexts[chatId].questions) {
+      currentContext.push({
+        role: 'system',
+        content: question,
+      })
+    }
+
+    return currentContext
+  }
+
+  private addToContext(chatId: string, question: string): void {
+    if (this.chatContexts[chatId]) {
+      this.chatContexts[chatId].date = new Date()
+      this.chatContexts[chatId].questions.push(question)
+    }
   }
 
   private isNotWorkingTime(): boolean {
