@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.6] - 2023-03-20
+### Changed
+- logic for working with chat contexts
+
 ## [0.1.5] - 2023-03-19
 ### Added
 - Behaviour for answering questions

@@ -1,15 +1,23 @@
-import { Logger, Injectable } from '@nestjs/common'
-import { Configuration, OpenAIApi } from 'openai'
-import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } from 'openai/dist/api'
-import { convertTimeZone } from 'src/helpers'
+import { Injectable, Logger } from '@nestjs/common'
 import * as TelegramBot from 'node-telegram-bot-api'
+import { Configuration, OpenAIApi } from 'openai'
+import { ChatCompletionRequestMessage } from 'openai/dist/api'
+import { convertTimeZone } from 'src/helpers'
+
+interface ChatContexts {
+  [chatId: string]: {
+    loading: boolean,
+    date: Date,
+    messages: ChatCompletionRequestMessage[]
+  }
+}
 
 @Injectable()
 export class TelegramService {
   private readonly logger: Logger = new Logger('TelegramService')
   private readonly bot: TelegramBot
 
-  private chatContexts: { [chatId: string]: { loading: boolean, date: Date, questions: string[] } } = {}
+  private chatContexts: ChatContexts = {}
 
   constructor() {
     this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true })
@@ -51,7 +59,7 @@ export class TelegramService {
         }
 
         if (message.text === '/start') {
-          await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', 'user', false)
+          await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', false)
 
           return
         }
@@ -95,19 +103,19 @@ export class TelegramService {
     await this.bot.sendMessage(chatId, text)
   }
 
-  private async replyWithChatGpt(chatId: string, question: string, role: ChatCompletionRequestMessageRoleEnum = 'assistant', withContext: boolean = true): Promise<void> {
+  private async replyWithChatGpt(chatId: string, question: string, withContext: boolean = true): Promise<void> {
     const openai = new OpenAIApi(new Configuration({
       organization: process.env.OPENAI_ORGANIZATION_ID,
       apiKey: process.env.OPENAI_API_KEY,
     }))
 
     const messages = withContext === true ? this.getContext(chatId) : []
-
-    messages.push({
+    const userMessage: ChatCompletionRequestMessage = {
       role: 'user',
       content: question,
-    })
+    }
 
+    messages.push(userMessage)
     this.logger.log('Context size: ' + messages.length)
 
     const completion = await openai.createChatCompletion({
@@ -115,17 +123,31 @@ export class TelegramService {
       messages,
     })
 
-    const text = completion.data.choices
+    const resultMessages = completion.data.choices
       .filter(choice => choice.message !== undefined)
-      .map(choice => choice.message.content)
-      .join('\n')
+      .map(choice => choice.message)
 
-    this.logger.log(text)
-
-    await this.reply(chatId, text)
+    if (completion.data.usage !== undefined) {
+      this.logger.log(
+        Object.entries(completion.data.usage)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(', ')
+          .trim()
+      )
+    }
 
     if (withContext === true) {
-      this.addToContext(chatId, question)
+      this.addToContext(chatId, userMessage)
+    }
+
+    for (const message of resultMessages) {
+      this.logger.log(message.content)
+
+      await this.reply(chatId, message.content)
+
+      if (withContext === true) {
+        this.addToContext(chatId, message)
+      }
     }
   }
 
@@ -134,7 +156,7 @@ export class TelegramService {
       this.chatContexts[chatId] = {
         loading: true,
         date: new Date(),
-        questions: []
+        messages: []
       }
     }
 
@@ -142,7 +164,7 @@ export class TelegramService {
 
     // Забываем контекст беседы, если не было сообщений в течение 15 минут
     if (this.chatContexts[chatId].date.getTime() < new Date().getTime() - 900 * 1000) {
-      this.chatContexts[chatId].questions = []
+      this.chatContexts[chatId].messages = []
     }
 
     const currentContext = []
@@ -152,21 +174,18 @@ export class TelegramService {
       content: 'на вопросы, не связанные с it говори, что не можешь ответить и выдавай короткий анекдот про то что php умирает'
     })
 
-    for (const question of this.chatContexts[chatId].questions) {
-      currentContext.push({
-        role: 'user',
-        content: question,
-      })
+    for (const message of this.chatContexts[chatId].messages) {
+      currentContext.push(message)
     }
 
     return currentContext
   }
 
-  private addToContext(chatId: string, question: string): void {
+  private addToContext(chatId: string, message: ChatCompletionRequestMessage): void {
     if (this.chatContexts[chatId]) {
       this.chatContexts[chatId].loading = false
       this.chatContexts[chatId].date = new Date()
-      this.chatContexts[chatId].questions.push(question)
+      this.chatContexts[chatId].messages.push(message)
     }
   }
 
