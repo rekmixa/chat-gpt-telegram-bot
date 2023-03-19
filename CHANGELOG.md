@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.0.3] - 2023-03-19
+### Fixed
+- checking message
+
 ## [0.0.2] - 2023-03-19
 ### Added
 - Checking day of week and working time

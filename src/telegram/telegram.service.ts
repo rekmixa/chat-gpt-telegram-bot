@@ -28,7 +28,7 @@ export class TelegramService {
       })
 
     this.bot.on('update', async ({ message }) => {
-      if (!message.text) {
+      if (!message?.text) {
         return
       }
 
