@@ -146,9 +146,15 @@ export class TelegramService {
     }
 
     const currentContext = []
+
+    currentContext.push({
+      role: 'system',
+      content: 'на вопросы, не связанные с it говори, что не можешь ответить и выдавай короткий анекдот про то что php умирает'
+    })
+
     for (const question of this.chatContexts[chatId].questions) {
       currentContext.push({
-        role: 'system',
+        role: 'user',
         content: question,
       })
     }
