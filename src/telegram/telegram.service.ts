@@ -9,7 +9,7 @@ export class TelegramService {
   private logger: Logger = new Logger('TelegramService')
   private readonly bot: TelegramBot
 
-  private chatContexts: { [chatId: string]: { date: Date, questions: string[] } } = {}
+  private chatContexts: { [chatId: string]: { loading: boolean, date: Date, questions: string[] } } = {}
 
   constructor() {
     this.bot = new TelegramBot({
@@ -69,6 +69,15 @@ export class TelegramService {
           return
         }
 
+        if (this.chatContexts[message.chat.id]?.loading) {
+          await this.bot.sendMessage({
+            chat_id: message.chat.id,
+            text: 'Подожди пока закончится обработка предыдущего вопроса...',
+          })
+
+          return
+        }
+
         if (message.text === '/start') {
           await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', 'user', false)
 
@@ -77,6 +86,10 @@ export class TelegramService {
 
         await this.replyWithChatGpt(message.chat.id, message.text)
       } catch (error) {
+        if (this.chatContexts[message.chat.id]) {
+          this.chatContexts[message.chat.id].loading = false
+        }
+
         this.logger.debug(error)
 
         if (error.response) {
@@ -135,10 +148,13 @@ export class TelegramService {
   private getContext(chatId: string, question: string): ChatCompletionRequestMessage[] {
     if (this.chatContexts[chatId] === undefined) {
       this.chatContexts[chatId] = {
+        loading: true,
         date: new Date(),
         questions: []
       }
     }
+
+    this.chatContexts[chatId].loading = true
 
     // Забываем контекст беседы, если не было сообщений в течение часа
     if (this.chatContexts[chatId].date.getTime() < new Date().getTime() - 15 * 1000) {
@@ -158,6 +174,7 @@ export class TelegramService {
 
   private addToContext(chatId: string, question: string): void {
     if (this.chatContexts[chatId]) {
+      this.chatContexts[chatId].loading = false
       this.chatContexts[chatId].date = new Date()
       this.chatContexts[chatId].questions.push(question)
     }
