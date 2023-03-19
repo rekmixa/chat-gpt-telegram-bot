@@ -99,7 +99,7 @@ export class TelegramService {
         try {
           await this.bot.sendMessage({
             chat_id: message.chat.id,
-            text: 'Something went wrong',
+            text: 'Что-то пошло не так...',
           })
         } catch (error) {
           this.logger.debug(error)

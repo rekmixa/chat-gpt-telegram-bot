@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.2] - 2023-03-19
+### Added
+- change error message
+
 ## [0.1.1] - 2023-03-19
 ### Added
 - checking for multiple questions in the same time by one user
