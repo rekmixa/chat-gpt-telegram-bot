@@ -26,11 +26,11 @@
     "@nestjs/microservices": "^8.4.4",
     "@nestjs/platform-express": "^8.4.4",
     "dayjs": "^1.10.5",
+    "node-telegram-bot-api": "^0.61.0",
     "openai": "^3.2.1",
     "reflect-metadata": "^0.1.13",
     "rimraf": "^3.0.0",
-    "rxjs": "^6.5.4",
-    "telegram-bot-api": "^2.0.1"
+    "rxjs": "^6.5.4"
   },
   "devDependencies": {
     "@nestjs/cli": "^8.2.5",

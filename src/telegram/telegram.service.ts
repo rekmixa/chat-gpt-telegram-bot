@@ -2,34 +2,21 @@ import { Logger, Injectable } from '@nestjs/common'
 import { Configuration, OpenAIApi } from 'openai'
 import { ChatCompletionRequestMessage, ChatCompletionRequestMessageRoleEnum } from 'openai/dist/api'
 import { convertTimeZone } from 'src/helpers'
-import * as TelegramBot from 'telegram-bot-api'
+import * as TelegramBot from 'node-telegram-bot-api'
 
 @Injectable()
 export class TelegramService {
-  private logger: Logger = new Logger('TelegramService')
+  private readonly logger: Logger = new Logger('TelegramService')
   private readonly bot: TelegramBot
 
   private chatContexts: { [chatId: string]: { loading: boolean, date: Date, questions: string[] } } = {}
 
   constructor() {
-    this.bot = new TelegramBot({
-      token: process.env.TELEGRAM_BOT_TOKEN,
-    })
+    this.bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true })
   }
 
   async onModuleInit() {
-    const messageProvider = new TelegramBot.GetUpdateMessageProvider()
-    this.bot.setMessageProvider(messageProvider)
-
-    this.bot.start()
-      .then(() => {
-        this.logger.log('BOT is started')
-      })
-      .catch(error => {
-        this.logger.debug(error)
-      })
-
-    this.bot.on('update', async ({ message }) => {
+    this.bot.on('message', async message => {
       if (!message?.text) {
         return
       }
@@ -40,37 +27,25 @@ export class TelegramService {
         await this.setTyping(message.chat.id)
 
         if (message.text === '/ping') {
-          await this.bot.sendMessage({
-            chat_id: message.chat.id,
-            text: 'pong',
-          })
+          await this.reply(message.chat.id, 'pong')
 
           return
         }
 
         if (this.nowIsWeekend() === true) {
-          await this.bot.sendMessage({
-            chat_id: message.chat.id,
-            text: 'У меня выходной, давай с этим в понедельник или иди в гугл',
-          })
+          await this.reply(message.chat.id, 'У меня выходной, давай в понедельник')
 
           return
         }
 
         if (this.isNotWorkingTime() === true) {
-          await this.bot.sendMessage({
-            chat_id: message.chat.id,
-            text: 'Пиши только в рабочее время. Думаешь, мне заняться больше нечем?!',
-          })
+          await this.reply(message.chat.id, 'Пиши только в рабочее время')
 
           return
         }
 
         if (this.chatContexts[message.chat.id]?.loading) {
-          await this.bot.sendMessage({
-            chat_id: message.chat.id,
-            text: 'Подожди пока закончится обработка предыдущего вопроса...',
-          })
+          await this.reply(message.chat.id, 'Подожди пока закончится обработка предыдущего вопроса...')
 
           return
         }
@@ -89,15 +64,8 @@ export class TelegramService {
 
         this.logger.debug(error)
 
-        if (error.response) {
-          this.logger.warn(error.response.data.error.message)
-        }
-
         try {
-          await this.bot.sendMessage({
-            chat_id: message.chat.id,
-            text: 'Что-то пошло не так...',
-          })
+          await this.reply(message.chat.id, 'Что-то пошло не так...')
         } catch (error) {
           this.logger.debug(error)
         }
@@ -106,10 +74,11 @@ export class TelegramService {
   }
 
   private async setTyping(chatId): Promise<void> {
-    await this.bot.sendChatAction({
-      chat_id: chatId,
-      action: 'typing',
-    })
+    await this.bot.sendChatAction(chatId, 'typing')
+  }
+
+  private async reply(chatId: string, text: string): Promise<void> {
+    await this.bot.sendMessage(chatId, text)
   }
 
   private async replyWithChatGpt(chatId: string, question: string, role: ChatCompletionRequestMessageRoleEnum = 'assistant', withContext: boolean = true): Promise<void> {
@@ -126,7 +95,7 @@ export class TelegramService {
     })
 
     this.logger.log('Context size: ' + messages.length)
-    
+
     const completion = await openai.createChatCompletion({
       model: 'gpt-3.5-turbo',
       messages,
@@ -139,10 +108,7 @@ export class TelegramService {
 
     this.logger.log(text)
 
-    await this.bot.sendMessage({
-      chat_id: chatId,
-      text,
-    })
+    await this.reply(chatId, text)
 
     if (withContext === true) {
       this.addToContext(chatId, question)
