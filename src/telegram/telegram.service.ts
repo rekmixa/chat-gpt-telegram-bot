@@ -140,8 +140,8 @@ export class TelegramService {
 
     this.chatContexts[chatId].loading = true
 
-    // Забываем контекст беседы, если не было сообщений в течение часа
-    if (this.chatContexts[chatId].date.getTime() < new Date().getTime() - 15 * 1000) {
+    // Забываем контекст беседы, если не было сообщений в течение 15 минут
+    if (this.chatContexts[chatId].date.getTime() < new Date().getTime() - 900 * 1000) {
       this.chatContexts[chatId].questions = []
     }
 

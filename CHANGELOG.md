@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+## [0.1.4] - 2023-03-19
+### Changed
+- change context delay to 15 minutes
+
 ## [0.1.3] - 2023-03-19
 ### Added
 - node-telegram-bot-api package
