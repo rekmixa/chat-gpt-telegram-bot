@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2022-03-20
+### Added
+- /clearContext command
+### Changed
+- default context prompt
+### Removed
+- logging messages
+
 ## [0.1.6] - 2023-03-20
 ### Changed
 - logic for working with chat contexts

@@ -29,8 +29,6 @@ export class TelegramService {
         return
       }
 
-      this.logger.log(`@${message.from.username}: ${message.text}`)
-
       try {
         await this.setTyping(message.chat.id)
 
@@ -40,20 +38,25 @@ export class TelegramService {
           return
         }
 
-        if (this.nowIsWeekend() === true) {
-          await this.reply(message.chat.id, 'У меня выходной, давай в понедельник')
-
-          return
-        }
-
-        if (this.isNotWorkingTime() === true) {
-          await this.reply(message.chat.id, 'Пиши только в рабочее время')
-
-          return
-        }
-
         if (this.isLoading(message.chat.id) === true) {
-          await this.reply(message.chat.id, 'Подожди пока закончится обработка предыдущего вопроса...')
+          await this.reply(message.chat.id, 'Подождите пока закончится обработка предыдущего запроса...')
+
+          return
+        }
+
+        if (this.isOnWork() === true) {
+          await this.reply(message.chat.id, 'Пишите мне только в рабочее время')
+
+          return
+        }
+
+        if (message.text === '/clearContext') {
+          let responseMessage = 'Контекст успешно очищен'
+          if (this.clearContext(message.chat.id) === false) {
+            responseMessage = 'Контекст пуст'
+          }
+
+          await this.reply(message.chat.id, responseMessage)
 
           return
         }
@@ -82,18 +85,18 @@ export class TelegramService {
   }
 
   private async setTyping(chatId): Promise<void> {
-    this.logger.log(`Typing: ${chatId}`)
+    this.logger.log(`Typing started for: ${chatId}`)
     await this.bot.sendChatAction(chatId, 'typing')
 
     if (this.isLoading(chatId) === false) {
       const interval = setInterval(async () => {
         if (this.isLoading(chatId) === false) {
+          this.logger.log(`Typing finished for: ${chatId}`)
           clearInterval(interval)
 
           return
         }
 
-        this.logger.log(`Typing: ${chatId}`)
         await this.bot.sendChatAction(chatId, 'typing')
       }, 1000)
     }
@@ -109,18 +112,21 @@ export class TelegramService {
       apiKey: process.env.OPENAI_API_KEY,
     }))
 
-    const messages = withContext === true ? this.getContext(chatId) : []
+    const context = withContext === true ? this.getContext(chatId) : []
+    const systemMessages = context.filter(message => message.role === 'system')
     const userMessage: ChatCompletionRequestMessage = {
       role: 'user',
       content: question,
     }
 
-    messages.push(userMessage)
-    this.logger.log('Context size: ' + messages.length)
+    this.logger.log(`Context size: ${context.length}, System messages: ${systemMessages.length}`)
 
     const completion = await openai.createChatCompletion({
       model: 'gpt-3.5-turbo',
-      messages,
+      messages: [
+        ...context,
+        userMessage,
+      ],
     })
 
     const resultMessages = completion.data.choices
@@ -141,8 +147,6 @@ export class TelegramService {
     }
 
     for (const message of resultMessages) {
-      this.logger.log(message.content)
-
       await this.reply(chatId, message.content)
 
       if (withContext === true) {
@@ -171,7 +175,12 @@ export class TelegramService {
 
     currentContext.push({
       role: 'system',
-      content: 'на вопросы, не связанные с it говори, что не можешь ответить и выдавай короткий анекдот про то что php умирает'
+      content: 'на вопросы, не связанные с it говори, что не можешь ответить и выдавай короткий анекдот про php',
+    })
+
+    currentContext.push({
+      role: 'system',
+      content: 'Меня зовут МишаБОТ',
     })
 
     for (const message of this.chatContexts[chatId].messages) {
@@ -182,34 +191,39 @@ export class TelegramService {
   }
 
   private addToContext(chatId: string, message: ChatCompletionRequestMessage): void {
-    if (this.chatContexts[chatId]) {
+    if (this.chatContexts[chatId] !== undefined) {
       this.chatContexts[chatId].loading = false
       this.chatContexts[chatId].date = new Date()
       this.chatContexts[chatId].messages.push(message)
     }
   }
 
+  private clearContext(chatId: string): boolean {
+    if (this.chatContexts[chatId] === undefined) {
+      return false
+    }
+
+    delete this.chatContexts[chatId]
+    this.logger.log(`Clearing context for: ${chatId}`)
+
+    return true
+  }
+
   private isLoading(chatId: string): boolean {
     return Boolean(this.chatContexts[chatId]?.loading)
   }
 
-  private isNotWorkingTime(): boolean {
+  private isOnWork(): boolean {
     if (process.env.NODE_ENV === 'development') {
       return false
     }
 
     const date = convertTimeZone(new Date(), process.env.TIMEZONE)
 
-    return date.getHours() < 9 || date.getHours() > 17
-  }
-
-  private nowIsWeekend(): boolean {
-    if (process.env.NODE_ENV === 'development') {
+    if (date.getDay() === 0 || date.getDay() === 6) {
       return false
     }
 
-    const date = convertTimeZone(new Date(), process.env.TIMEZONE)
-
-    return date.getDay() === 0 || date.getDay() === 6
+    return date.getHours() >= 8 && date.getHours() <= 19
   }
 }
