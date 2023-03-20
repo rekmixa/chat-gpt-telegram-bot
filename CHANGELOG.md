@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
-## [0.2.0] - 2022-03-20
+## [0.2.1] - 2023-03-20
+### Added
+- setting list of command on startup bot
+- ability to retry request on error
+### Changed
+- renamed clearContext command to clear_context
+- refactor logic for working with context
+### Fixed
+- checking isOnWork
+
+## [0.2.0] - 2023-03-20
 ### Added
 - /clearContext command
 ### Changed

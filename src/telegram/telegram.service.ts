@@ -5,11 +5,14 @@ import { ChatCompletionRequestMessage } from 'openai/dist/api'
 import { convertTimeZone } from 'src/helpers'
 
 interface ChatContexts {
-  [chatId: string]: {
-    loading: boolean,
-    date: Date,
-    messages: ChatCompletionRequestMessage[]
-  }
+  [chatId: string]: ChatContext
+}
+
+interface ChatContext {
+  loading: boolean,
+  date: Date,
+  messages: ChatCompletionRequestMessage[]
+  failedMessage?: any,
 }
 
 @Injectable()
@@ -24,64 +27,119 @@ export class TelegramService {
   }
 
   async onModuleInit() {
+    this.bot.setMyCommands([
+      {
+        command: 'start',
+        description: 'Запуск',
+      },
+      {
+        command: 'clear_context',
+        description: 'Забыть контекст разговора',
+      },
+      {
+        command: 'ping',
+        description: 'Пинг',
+      },
+    ])
+
+    this.bot.on('callback_query', async data => {
+      try {
+        if (data.data === 'retry') {
+          this.logger.log('Retrying...')
+
+          await this.bot.editMessageReplyMarkup({}, {
+            chat_id: data.message.chat.id,
+            message_id: data.message.message_id,
+          })
+
+          await this.bot.answerCallbackQuery(data.id, {
+            text: 'Повторная попытка запроса...',
+          })
+
+          const context = this.getContext(data.from.id)
+          if (context.failedMessage !== undefined) {
+            this.handleMessage(context.failedMessage)
+          }
+        }
+      } catch (error) {
+        this.logger.debug(error)
+      }
+    })
+
     this.bot.on('message', async message => {
-      if (!message?.text) {
+      this.handleMessage(message)
+    })
+  }
+
+  private async handleMessage(message: any): Promise<void> {
+    if (!message?.text) {
+      return
+    }
+
+    try {
+      await this.setTyping(message.chat.id)
+
+      if (message.text === '/ping') {
+        await this.reply(message.chat.id, 'pong')
+
         return
       }
 
-      try {
-        await this.setTyping(message.chat.id)
+      if (this.isLoading(message.chat.id) === true) {
+        await this.reply(message.chat.id, 'Подождите пока закончится обработка предыдущего запроса...')
 
-        if (message.text === '/ping') {
-          await this.reply(message.chat.id, 'pong')
-
-          return
-        }
-
-        if (this.isLoading(message.chat.id) === true) {
-          await this.reply(message.chat.id, 'Подождите пока закончится обработка предыдущего запроса...')
-
-          return
-        }
-
-        if (this.isOnWork() === true) {
-          await this.reply(message.chat.id, 'Пишите мне только в рабочее время')
-
-          return
-        }
-
-        if (message.text === '/clearContext') {
-          let responseMessage = 'Контекст успешно очищен'
-          if (this.clearContext(message.chat.id) === false) {
-            responseMessage = 'Контекст пуст'
-          }
-
-          await this.reply(message.chat.id, responseMessage)
-
-          return
-        }
-
-        if (message.text === '/start') {
-          await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', false)
-
-          return
-        }
-
-        await this.replyWithChatGpt(message.chat.id, message.text)
-      } catch (error) {
-        if (this.chatContexts[message.chat.id]) {
-          this.chatContexts[message.chat.id].loading = false
-        }
-
-        this.logger.debug(error)
-
-        try {
-          await this.reply(message.chat.id, 'Что-то пошло не так...')
-        } catch (error) {
-          this.logger.debug(error)
-        }
+        return
       }
-    })
+
+      if (this.isOnWork() === false) {
+        await this.reply(message.chat.id, 'Пишите мне только в рабочее время')
+
+        return
+      }
+
+      if (message.text === '/clear_context') {
+        let responseMessage = 'Контекст успешно очищен'
+        if (this.clearContext(message.chat.id) === false) {
+          responseMessage = 'Контекст пуст'
+        }
+
+        await this.reply(message.chat.id, responseMessage)
+
+        return
+      }
+
+      if (message.text === '/start') {
+        await this.replyWithChatGpt(message.chat.id, 'ответь шуточно на тему того, что я не умею дебажить', false)
+
+        return
+      }
+
+      await this.replyWithChatGpt(message.chat.id, message.text)
+    } catch (error) {
+      const context = this.getContext(message.chat.id)
+      context.failedMessage = message
+
+      this.logger.debug(error)
+
+      try {
+        await this.reply(message.chat.id, 'Что-то пошло не так...', {
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: 'Попробовать снова',
+                  callback_data: 'retry',
+                }
+              ],
+            ],
+          }
+        })
+      } catch (error) {
+        this.logger.debug(error)
+      }
+    } finally {
+      this.setLoading(message.chat.id, false)
+    }
   }
 
   private async setTyping(chatId): Promise<void> {
@@ -102,17 +160,18 @@ export class TelegramService {
     }
   }
 
-  private async reply(chatId: string, text: string): Promise<void> {
-    await this.bot.sendMessage(chatId, text)
+  private async reply(chatId: string, text: string, options?: any): Promise<void> {
+    await this.bot.sendMessage(chatId, text, options)
   }
 
   private async replyWithChatGpt(chatId: string, question: string, withContext: boolean = true): Promise<void> {
+    this.setLoading(chatId, true)
     const openai = new OpenAIApi(new Configuration({
       organization: process.env.OPENAI_ORGANIZATION_ID,
       apiKey: process.env.OPENAI_API_KEY,
     }))
 
-    const context = withContext === true ? this.getContext(chatId) : []
+    const context = withContext === true ? this.getContextMessages(chatId) : []
     const systemMessages = context.filter(message => message.role === 'system')
     const userMessage: ChatCompletionRequestMessage = {
       role: 'user',
@@ -155,20 +214,24 @@ export class TelegramService {
     }
   }
 
-  private getContext(chatId: string): ChatCompletionRequestMessage[] {
+  private getContext(chatId: string): ChatContext {
     if (this.chatContexts[chatId] === undefined) {
       this.chatContexts[chatId] = {
-        loading: true,
+        loading: false,
         date: new Date(),
         messages: []
       }
     }
 
-    this.chatContexts[chatId].loading = true
+    return this.chatContexts[chatId]
+  }
+
+  private getContextMessages(chatId: string): ChatCompletionRequestMessage[] {
+    const context = this.getContext(chatId)
 
     // Забываем контекст беседы, если не было сообщений в течение 15 минут
-    if (this.chatContexts[chatId].date.getTime() < new Date().getTime() - 900 * 1000) {
-      this.chatContexts[chatId].messages = []
+    if (context.date.getTime() < new Date().getTime() - 900 * 1000) {
+      context.messages = []
     }
 
     const currentContext = []
@@ -183,7 +246,7 @@ export class TelegramService {
       content: 'Меня зовут МишаБОТ',
     })
 
-    for (const message of this.chatContexts[chatId].messages) {
+    for (const message of context.messages) {
       currentContext.push(message)
     }
 
@@ -191,11 +254,10 @@ export class TelegramService {
   }
 
   private addToContext(chatId: string, message: ChatCompletionRequestMessage): void {
-    if (this.chatContexts[chatId] !== undefined) {
-      this.chatContexts[chatId].loading = false
-      this.chatContexts[chatId].date = new Date()
-      this.chatContexts[chatId].messages.push(message)
-    }
+    this.setLoading(chatId, false)
+    const context = this.getContext(chatId)
+    context.date = new Date()
+    context.messages.push(message)
   }
 
   private clearContext(chatId: string): boolean {
@@ -210,12 +272,19 @@ export class TelegramService {
   }
 
   private isLoading(chatId: string): boolean {
-    return Boolean(this.chatContexts[chatId]?.loading)
+    const context = this.getContext(chatId)
+
+    return context.loading
+  }
+
+  private setLoading(chatId: string, loading: boolean): void {
+    const context = this.getContext(chatId)
+    context.loading = loading
   }
 
   private isOnWork(): boolean {
     if (process.env.NODE_ENV === 'development') {
-      return false
+      return true
     }
 
     const date = convertTimeZone(new Date(), process.env.TIMEZONE)

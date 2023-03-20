@@ -6,6 +6,12 @@
 
 Getting OpenAI API Key: https://platform.openai.com/account/api-keys  
 
+```txt
+start - Запуск
+clear_context - Забыть контекст разговора
+ping - Ping
+```
+
 ## Installation
 
 ```bash
